@@ -310,69 +310,93 @@ if command -v dd &>/dev/null; then
 fi
 
 # Канал — тест через несколько источников
-check_info "Тест скорости канала (несколько серверов)..."
+# Канал — сначала speedtest-cli, потом curl как fallback
+check_info "Тест скорости канала..."
 
 BEST_SPEED=0
 BEST_NAME=""
+SPEEDTEST_DONE=false
 
-for ENTRY in \
-    "Cloudflare EU:https://speed.cloudflare.com/__down?bytes=104857600" \
-    "Yandex CDN (RU):https://storage.yandexcloud.net/yandex-internet-speed-test/100mb.bin" \
-    "Tele2 EU:http://speedtest.tele2.net/100MB.zip"
-do
-    SRC_NAME=$(echo "$ENTRY" | cut -d: -f1)
-    SRC_URL=$(echo "$ENTRY" | cut -d: -f2-)
+# Метод 1: speedtest-cli (самый точный)
+if command -v speedtest-cli &>/dev/null || command -v speedtest &>/dev/null; then
+    check_info "  → speedtest-cli (точный тест)..."
+    TOOL="speedtest-cli"
+    command -v speedtest &>/dev/null && TOOL="speedtest"
 
-    check_info "  → $SRC_NAME..."
-    RAW=$(curl -o /dev/null -s -w "%{speed_download}" \
-        -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
-        -L --max-time 20 "$SRC_URL" 2>/dev/null)
-    if [ -n "$RAW" ] && [ "$RAW" != "0" ]; then
-        MBIT=$(echo "$RAW" | awk '{printf "%.0f", $1/1024/1024*8}')
-        if [ "$MBIT" -gt 0 ] 2>/dev/null; then
-            check_info "    $SRC_NAME: ${BOLD}${MBIT} Mbit/s${NC}"
-            REPORT_LINES+=("  $SRC_NAME: ${MBIT} Mbit/s")
-            if [ "$MBIT" -gt "$BEST_SPEED" ] 2>/dev/null; then
-                BEST_SPEED=$MBIT
-                BEST_NAME=$SRC_NAME
+    ST_OUT=$($TOOL --simple --timeout 30 2>/dev/null)
+    DL=$(echo "$ST_OUT" | grep -i 'download' | awk '{print $2}')
+    UL=$(echo "$ST_OUT" | grep -i 'upload'   | awk '{print $2}')
+    PING_ST=$(echo "$ST_OUT" | grep -i 'ping' | awk '{print $2}')
+
+    if [ -n "$DL" ] && [ "$(echo "$DL > 0" | bc 2>/dev/null)" = "1" ]; then
+        DL_INT=$(echo "$DL" | cut -d. -f1)
+        check_info "    Download: ${BOLD}${DL} Mbit/s${NC}"
+        check_info "    Upload:   ${BOLD}${UL} Mbit/s${NC}"
+        check_info "    Ping:     ${BOLD}${PING_ST} ms${NC}"
+        BEST_SPEED=$DL_INT
+        BEST_NAME="speedtest-cli"
+        SPEEDTEST_DONE=true
+        REPORT_LINES+=("  speedtest-cli: Download ${DL} / Upload ${UL} Mbit/s")
+    fi
+fi
+
+# Метод 2: curl через несколько серверов (если speedtest-cli недоступен)
+if [ "$SPEEDTEST_DONE" = false ]; then
+    check_info "  speedtest-cli не найден, использую curl..."
+    for ENTRY in \
+        "Cloudflare EU:https://speed.cloudflare.com/__down?bytes=104857600" \
+        "Yandex CDN (RU):https://storage.yandexcloud.net/yandex-internet-speed-test/100mb.bin" \
+        "Tele2 EU:http://speedtest.tele2.net/100MB.zip"
+    do
+        SRC_NAME=$(echo "$ENTRY" | cut -d: -f1)
+        SRC_URL=$(echo "$ENTRY" | cut -d: -f2-)
+        check_info "  → $SRC_NAME..."
+        RAW=$(curl -o /dev/null -s -w "%{speed_download}" \
+            -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+            -L --max-time 20 "$SRC_URL" 2>/dev/null)
+        if [ -n "$RAW" ] && [ "$RAW" != "0" ]; then
+            MBIT=$(echo "$RAW" | awk '{printf "%.0f", $1/1024/1024*8}')
+            if [ "$MBIT" -gt 0 ] 2>/dev/null; then
+                check_info "    $SRC_NAME: ${BOLD}${MBIT} Mbit/s${NC}"
+                REPORT_LINES+=("  $SRC_NAME: ${MBIT} Mbit/s")
+                if [ "$MBIT" -gt "$BEST_SPEED" ] 2>/dev/null; then
+                    BEST_SPEED=$MBIT
+                    BEST_NAME=$SRC_NAME
+                fi
+            else
+                check_info "    $SRC_NAME: недоступен"
             fi
         else
-            check_info "    $SRC_NAME: сервер недоступен"
+            check_info "    $SRC_NAME: недоступен"
         fi
-    else
-        check_info "    $SRC_NAME: недоступен"
-    fi
-done
-
-echo ""
+    done
+fi
 
 # Пинг до Cloudflare как индикатор реального качества канала
 CF_PING=$(ping -c 3 -W 2 1.1.1.1 2>/dev/null | tail -1 | awk -F'/' '{printf "%.0f", $5}')
 
+echo ""
 if [ "$BEST_SPEED" -gt 0 ] 2>/dev/null; then
     check_info "Лучший результат: ${BOLD}${BEST_SPEED} Mbit/s${NC} (${BEST_NAME})"
     if   [ "$BEST_SPEED" -gt 700 ] 2>/dev/null; then
         check_pass "Канал: ${BEST_SPEED} Mbit/s — полноценный 1 Gbps ✓"
     elif [ "$BEST_SPEED" -gt 400 ] 2>/dev/null; then
-        check_pass "Канал: ${BEST_SPEED} Mbit/s — хорошо"
+        check_pass "Канал: ${BEST_SPEED} Mbit/s — хорошо, VPN потянет"
     elif [ "$BEST_SPEED" -gt 100 ] 2>/dev/null; then
         check_warn "Канал: ${BEST_SPEED} Mbit/s — приемлемо, но не 1 Gbps"
     else
-        # Низкая скорость — смотрим на пинг чтобы понять реальное состояние
         if [ -n "$CF_PING" ] && [ "$CF_PING" -lt 20 ] 2>/dev/null; then
-            check_info "Канал: ${BEST_SPEED} Mbit/s по тесту — но пинг до Cloudflare всего ${CF_PING}ms"
-            check_warn "Скоростной тест занижен (серверы недоступны или перегружены) — канал вероятно нормальный, проверь speedtest-cli вручную: apt install speedtest-cli && speedtest-cli"
+            check_info "Канал: ${BEST_SPEED} Mbit/s по тесту — пинг до Cloudflare ${CF_PING}ms говорит о хорошем канале"
+            check_warn "Скоростной тест занижен (серверы перегружены) — установи speedtest-cli: apt install speedtest-cli"
         else
-            check_warn "Канал: ${BEST_SPEED} Mbit/s — низкая скорость, проверь позже: apt install speedtest-cli && speedtest-cli"
+            check_warn "Канал: ${BEST_SPEED} Mbit/s — низкая скорость, проверь: apt install speedtest-cli && speedtest-cli"
         fi
     fi
 else
-    # Ни один источник не сработал — делаем вывод по пингу
     if [ -n "$CF_PING" ] && [ "$CF_PING" -lt 20 ] 2>/dev/null; then
-        check_info "Скоростные серверы недоступны — но пинг до Cloudflare ${CF_PING}ms говорит о хорошем канале"
-        check_warn "Проверь скорость вручную: apt install speedtest-cli && speedtest-cli"
+        check_warn "Скоростные серверы недоступны — пинг ${CF_PING}ms хороший, проверь вручную: apt install speedtest-cli && speedtest-cli"
     else
-        check_warn "Не удалось замерить скорость канала — проверь вручную: apt install speedtest-cli && speedtest-cli"
+        check_warn "Не удалось замерить скорость — проверь вручную: apt install speedtest-cli && speedtest-cli"
     fi
 fi
 
