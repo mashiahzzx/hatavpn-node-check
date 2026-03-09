@@ -312,13 +312,6 @@ fi
 # Канал — тест через несколько источников
 check_info "Тест скорости канала (несколько серверов)..."
 
-# Источники: европейский нейтральный + Яндекс CDN (РФ) + Cloudflare
-declare -A SPEED_SOURCES=(
-    ["Cloudflare EU"]="https://speed.cloudflare.com/__down?bytes=104857600"
-    ["Yandex CDN (RU)"]="https://storage.yandexcloud.net/yandex-internet-speed-test/100mb.bin"
-    ["Tele2 EU"]="http://speedtest.tele2.net/100MB.zip"
-)
-
 BEST_SPEED=0
 BEST_NAME=""
 
@@ -352,6 +345,10 @@ do
 done
 
 echo ""
+
+# Пинг до Cloudflare как индикатор реального качества канала
+CF_PING=$(ping -c 3 -W 2 1.1.1.1 2>/dev/null | tail -1 | awk -F'/' '{printf "%.0f", $5}')
+
 if [ "$BEST_SPEED" -gt 0 ] 2>/dev/null; then
     check_info "Лучший результат: ${BOLD}${BEST_SPEED} Mbit/s${NC} (${BEST_NAME})"
     if   [ "$BEST_SPEED" -gt 700 ] 2>/dev/null; then
@@ -361,10 +358,22 @@ if [ "$BEST_SPEED" -gt 0 ] 2>/dev/null; then
     elif [ "$BEST_SPEED" -gt 100 ] 2>/dev/null; then
         check_warn "Канал: ${BEST_SPEED} Mbit/s — приемлемо, но не 1 Gbps"
     else
-        check_warn "Канал: ${BEST_SPEED} Mbit/s — низкая скорость по всем серверам (может быть перегрузка, проверь позже)"
+        # Низкая скорость — смотрим на пинг чтобы понять реальное состояние
+        if [ -n "$CF_PING" ] && [ "$CF_PING" -lt 20 ] 2>/dev/null; then
+            check_info "Канал: ${BEST_SPEED} Mbit/s по тесту — но пинг до Cloudflare всего ${CF_PING}ms"
+            check_warn "Скоростной тест занижен (серверы недоступны или перегружены) — канал вероятно нормальный, проверь speedtest-cli вручную: apt install speedtest-cli && speedtest-cli"
+        else
+            check_warn "Канал: ${BEST_SPEED} Mbit/s — низкая скорость, проверь позже: apt install speedtest-cli && speedtest-cli"
+        fi
     fi
 else
-    check_warn "Не удалось замерить скорость канала ни с одного источника"
+    # Ни один источник не сработал — делаем вывод по пингу
+    if [ -n "$CF_PING" ] && [ "$CF_PING" -lt 20 ] 2>/dev/null; then
+        check_info "Скоростные серверы недоступны — но пинг до Cloudflare ${CF_PING}ms говорит о хорошем канале"
+        check_warn "Проверь скорость вручную: apt install speedtest-cli && speedtest-cli"
+    else
+        check_warn "Не удалось замерить скорость канала — проверь вручную: apt install speedtest-cli && speedtest-cli"
+    fi
 fi
 
 # MTU
