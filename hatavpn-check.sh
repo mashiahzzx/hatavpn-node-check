@@ -1,56 +1,90 @@
 #!/bin/bash
-# ================================================
-#         HataVPN Node Quality Checker
-#         github.com/hatavpn/node-check
-#         Версия: 1.0.0
-# ================================================
-# Запуск:
-#   bash <(curl -sL https://raw.githubusercontent.com/USERNAME/REPO/main/check.sh)
+# ╔══════════════════════════════════════════════════╗
+#   HataVPN Node Quality Checker v2.0
+#   Универсальная проверка VPN-ноды (любая локация)
+#   Запуск:
+#   bash <(curl -sL https://raw.githubusercontent.com/mashiahzzx/hatavpn-node-check/main/hatavpn-check.sh)
+# ╚══════════════════════════════════════════════════╝
 
-# Цвета
+# ── Цвета ──────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+DIM='\033[2m'
+NC='\033[0m'
 
-# Иконки результата
 OK="${GREEN}✅${NC}"
 WARN="${YELLOW}⚠️ ${NC}"
 FAIL="${RED}❌${NC}"
 INFO="${CYAN}ℹ️ ${NC}"
 
-# Счётчики и причины
+# ── Счётчики и причины ─────────────────────────────
 ISSUES=0
 WARNINGS=0
 FAIL_REASONS=()
 WARN_REASONS=()
+REPORT_LINES=()
 
-print_header() {
-    echo ""
-    echo -e "${BOLD}${BLUE}══════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}${BLUE}        HataVPN Node Quality Checker v1.0         ${NC}"
-    echo -e "${BOLD}${BLUE}══════════════════════════════════════════════════${NC}"
-    echo -e "  Время проверки: $(date '+%Y-%m-%d %H:%M:%S UTC')"
-    echo ""
+check_pass() {
+    echo -e "  ${OK}  $1"
+    CLEAN=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    REPORT_LINES+=("✅ $CLEAN")
+}
+check_warn() {
+    echo -e "  ${WARN} $1"
+    ((WARNINGS++))
+    WARN_REASONS+=("$1")
+    CLEAN=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    REPORT_LINES+=("⚠️  $CLEAN")
+}
+check_fail() {
+    echo -e "  ${FAIL}  $1"
+    ((ISSUES++))
+    FAIL_REASONS+=("$1")
+    CLEAN=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    REPORT_LINES+=("❌ $CLEAN")
+}
+check_info() {
+    echo -e "  ${INFO}  $1"
+    CLEAN=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    REPORT_LINES+=("ℹ️  $CLEAN")
 }
 
 print_section() {
     echo ""
-    echo -e "${BOLD}${CYAN}[ $1 ] $2${NC}"
-    echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
+    echo -e "${BOLD}${CYAN}[$1] $2${NC}"
+    echo -e "${DIM}──────────────────────────────────────────────────${NC}"
+    REPORT_LINES+=("")
+    REPORT_LINES+=("[$1] $2")
+    REPORT_LINES+=("──────────────────────────────────────────────────")
 }
 
-check_pass()  { echo -e "  ${OK}  $1"; }
-check_warn()  { echo -e "  ${WARN} $1"; ((WARNINGS++)); WARN_REASONS+=("$1"); }
-check_fail()  { echo -e "  ${FAIL}  $1"; ((ISSUES++)); FAIL_REASONS+=("$1"); }
-check_info()  { echo -e "  ${INFO}  $1"; }
+REPORT_FILE="/tmp/hatavpn-node-report-$(date +%Y%m%d-%H%M%S).txt"
+START_TIME=$(date +%s)
 
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
+# ШАПКА
+# ══════════════════════════════════════════════════
+clear
+echo ""
+echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${BLUE}║       HataVPN Node Quality Checker  v2.0        ║${NC}"
+echo -e "${BOLD}${BLUE}║      Универсальная проверка VPN-ноды             ║${NC}"
+echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════╝${NC}"
+echo -e "  ${DIM}Время: $(date '+%Y-%m-%d %H:%M:%S UTC')${NC}"
+echo -e "  ${DIM}Хост:  $(hostname)${NC}"
+echo ""
+
+REPORT_LINES+=("HataVPN Node Quality Checker v2.0")
+REPORT_LINES+=("Время: $(date '+%Y-%m-%d %H:%M:%S UTC')")
+REPORT_LINES+=("Хост:  $(hostname)")
+
+# ══════════════════════════════════════════════════
 # 1. БАЗОВАЯ ИНФОРМАЦИЯ
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
 print_section "1/7" "Базовая информация о сервере"
 
 CPU_MODEL=$(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
@@ -58,31 +92,65 @@ CPU_CORES=$(nproc)
 CPU_MHZ=$(grep 'cpu MHz' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs | cut -d. -f1)
 RAM_TOTAL=$(free -h | awk '/Mem:/ {print $2}')
 RAM_FREE=$(free -h | awk '/Mem:/ {print $7}')
-DISK_INFO=$(df -h / | awk 'NR==2 {print $2 " total, " $4 " free"}')
+RAM_TOTAL_MB=$(free -m | awk '/Mem:/ {print $2}')
+DISK_FREE=$(df -h / | awk 'NR==2 {print $4}')
+DISK_USED_PCT=$(df / | awk 'NR==2 {print $5}')
 OS_NAME=$(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')
 KERNEL=$(uname -r)
-UPTIME=$(uptime -p 2>/dev/null || uptime)
+UPTIME_STR=$(uptime -p 2>/dev/null || uptime)
 VIRT=$(systemd-detect-virt 2>/dev/null || echo "unknown")
+LOAD=$(uptime | awk -F'load average:' '{print $2}' | xargs)
+LOAD_1=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
 
-check_info "CPU:     ${BOLD}$CPU_MODEL${NC}"
-check_info "Ядра:    ${BOLD}${CPU_CORES} @ ${CPU_MHZ} MHz${NC}"
-check_info "RAM:     ${BOLD}$RAM_TOTAL total / $RAM_FREE free${NC}"
-check_info "Диск:    ${BOLD}$DISK_INFO${NC}"
-check_info "ОС:      ${BOLD}$OS_NAME${NC}"
-check_info "Ядро:    ${BOLD}$KERNEL${NC}"
-check_info "Uptime:  ${BOLD}$UPTIME${NC}"
-check_info "Вирт:    ${BOLD}$VIRT${NC}"
+check_info "CPU:      ${BOLD}$CPU_MODEL${NC}"
+check_info "Ядра:     ${BOLD}${CPU_CORES} vCPU @ ${CPU_MHZ} MHz${NC}"
+check_info "RAM:      ${BOLD}$RAM_TOTAL total / $RAM_FREE free${NC}"
+check_info "Диск:     ${BOLD}$DISK_FREE free ($DISK_USED_PCT занято)${NC}"
+check_info "ОС:       ${BOLD}$OS_NAME${NC}"
+check_info "Ядро:     ${BOLD}$KERNEL${NC}"
+check_info "Вирт:     ${BOLD}$VIRT${NC}"
+check_info "Uptime:   ${BOLD}$UPTIME_STR${NC}"
+check_info "LA:       ${BOLD}$LOAD${NC}"
 
-# Проверка Ubuntu 22/24
+# Проверка ОС
 if echo "$OS_NAME" | grep -qE 'Ubuntu 2[24]'; then
-    check_pass "ОС актуальная — $OS_NAME"
+    check_pass "ОС актуальная: $OS_NAME"
+elif echo "$OS_NAME" | grep -qiE 'debian 1[12]|ubuntu'; then
+    check_warn "Рекомендуется Ubuntu 22.04/24.04, у вас: $OS_NAME"
 else
-    check_warn "Рекомендуется Ubuntu 22.04 или 24.04, у вас: $OS_NAME"
+    check_warn "Нестандартная ОС: $OS_NAME — рекомендуется Ubuntu 22.04/24.04"
 fi
 
-# ──────────────────────────────────────────────────
+# Проверка RAM
+if [ "$RAM_TOTAL_MB" -ge 3800 ] 2>/dev/null; then
+    check_pass "RAM достаточно: $RAM_TOTAL"
+elif [ "$RAM_TOTAL_MB" -ge 1800 ] 2>/dev/null; then
+    check_warn "RAM минимальная: $RAM_TOTAL — при большой нагрузке может не хватить"
+else
+    check_fail "RAM критически мало: $RAM_TOTAL — Xray + система не поместятся комфортно"
+fi
+
+# Проверка нагрузки
+LOAD_INT=$(echo "$LOAD_1" | cut -d. -f1)
+if [ "$LOAD_INT" -ge "$CPU_CORES" ] 2>/dev/null; then
+    check_warn "Высокая нагрузка (LA: $LOAD_1) — сервер уже чем-то занят"
+else
+    check_pass "Нагрузка в норме (LA: $LOAD_1)"
+fi
+
+# Проверка диска
+DISK_USED_NUM=$(echo "$DISK_USED_PCT" | tr -d '%')
+if [ "$DISK_USED_NUM" -lt 70 ] 2>/dev/null; then
+    check_pass "Диска достаточно: $DISK_FREE свободно"
+elif [ "$DISK_USED_NUM" -lt 90 ] 2>/dev/null; then
+    check_warn "Диск заполнен на $DISK_USED_PCT — следи за логами"
+else
+    check_fail "Диск почти полный ($DISK_USED_PCT) — освободи место перед установкой"
+fi
+
+# ══════════════════════════════════════════════════
 # 2. СЕТЬ И ГЕОЛОКАЦИЯ
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
 print_section "2/7" "Сеть и геолокация"
 
 IPV4=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null)
@@ -102,33 +170,36 @@ if [ -n "$IPV4" ]; then
     check_info "ISP:     ${BOLD}$ISP${NC}"
     check_info "ASN:     ${BOLD}$ASN${NC}"
 
-    if [ "$COUNTRY_CODE" = "NL" ]; then
-        check_pass "Геолокация: Netherlands ✓"
-    elif [ "$COUNTRY_CODE" = "DE" ]; then
-        check_warn "Геолокация показывает Германию — проверь реальный ДЦ у провайдера"
+    if [ -n "$COUNTRY_CODE" ] && [ "$COUNTRY_CODE" != "?" ]; then
+        check_pass "Геолокация определена: $CITY, $COUNTRY"
     else
-        check_fail "Геолокация: $COUNTRY — ожидается NL"
+        check_warn "Не удалось определить геолокацию IP"
+    fi
+
+    # Российский IP — бессмысленно для VPN
+    if [ "$COUNTRY_CODE" = "RU" ]; then
+        check_fail "IP российский — VPN-нода в РФ бессмысленна для обхода блокировок"
     fi
 else
-    check_fail "IPv4 недоступен"
+    check_fail "IPv4 недоступен — критическая проблема"
 fi
 
 if [ -n "$IPV6" ]; then
     check_pass "IPv6 доступен: $IPV6"
 else
-    check_warn "IPv6 недоступен (не критично)"
+    check_info "IPv6 недоступен (не критично для VLESS+Reality)"
 fi
 
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
 # 3. КРИТИЧЕСКИЕ ПАРАМЕТРЫ ДЛЯ XRAY
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
 print_section "3/7" "Критические параметры для Xray / VLESS+Reality"
 
 # AES-NI
 if grep -q 'aes' /proc/cpuinfo; then
     check_pass "AES-NI включён — аппаратное шифрование активно"
 else
-    check_fail "AES-NI ОТКЛЮЧЁН — шифрование будет медленным, нода не подходит"
+    check_fail "AES-NI ОТКЛЮЧЁН — Xray будет работать медленно, нода не подходит"
 fi
 
 # BBR
@@ -136,99 +207,95 @@ BBR=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}')
 if [ "$BBR" = "bbr" ]; then
     check_pass "BBR включён — оптимальная работа на нестабильных каналах"
 else
-    check_warn "BBR выключен (текущий: $BBR). Включить: echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf && sysctl -p"
+    check_warn "BBR выключен (текущий: $BBR) — включить: echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf && sysctl -p"
 fi
 
 # TUN/TAP
 if [ -e /dev/net/tun ]; then
-    check_pass "TUN/TAP доступен — AmneziaWG и WireGuard можно поднять"
+    check_pass "TUN/TAP доступен"
 else
-    check_warn "TUN/TAP недоступен — WireGuard/AmneziaWG не запустить"
+    check_warn "TUN/TAP недоступен — WireGuard/AmneziaWG не поднять"
 fi
 
-# Проверка частоты CPU для Xray
-if [ -n "$CPU_MHZ" ] && [ "$CPU_MHZ" -gt 3500 ] 2>/dev/null; then
+# Частота CPU
+if [ -n "$CPU_MHZ" ] && [ "$CPU_MHZ" -gt 3800 ] 2>/dev/null; then
     check_pass "Частота CPU: ${CPU_MHZ} MHz — отлично для Xray"
 elif [ -n "$CPU_MHZ" ] && [ "$CPU_MHZ" -gt 2500 ] 2>/dev/null; then
-    check_warn "Частота CPU: ${CPU_MHZ} MHz — приемлемо, но не оптимально"
+    check_warn "Частота CPU: ${CPU_MHZ} MHz — приемлемо, но не идеально для Xray"
 else
-    check_fail "Частота CPU: ${CPU_MHZ} MHz — низкая, Xray будет работать медленно"
+    check_fail "Частота CPU: ${CPU_MHZ} MHz — низкая, Xray будет тормозить"
 fi
 
-# ──────────────────────────────────────────────────
-# 4. ТЕСТ CPU (AES-256-GCM для Xray)
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
+# 4. ТЕСТ CPU — AES-256-GCM
+# ══════════════════════════════════════════════════
 print_section "4/7" "Тест CPU — скорость шифрования AES-256-GCM (как Xray)"
 
 if command -v openssl &>/dev/null; then
-    check_info "Запускаю 3-секундный тест openssl..."
+    check_info "Запускаю 3-секундный тест..."
     AES_RESULT=$(openssl speed -elapsed -seconds 3 aes-256-gcm 2>/dev/null | grep 'aes-256-gcm' | awk '{print $NF}')
-
     if [ -n "$AES_RESULT" ]; then
-        # Конвертируем в Gbit/s для наглядности
-        AES_GBIT=$(echo "$AES_RESULT" | awk '{printf "%.1f", $1/1024/1024/1024*8}' 2>/dev/null)
-        check_info "Результат: ${BOLD}$AES_RESULT bytes/s (~${AES_GBIT} Gbit/s)${NC}"
+        AES_MB=$(echo "$AES_RESULT" | awk '{print int($1/1024/1024)}')
+        AES_GBIT=$(echo "$AES_RESULT" | awk '{printf "%.1f", $1/1024/1024/1024*8}')
+        check_info "Результат: ${BOLD}${AES_MB} MB/s (~${AES_GBIT} Gbit/s)${NC}"
 
-        AES_MB=$(echo "$AES_RESULT" | awk '{print int($1/1024/1024)}' 2>/dev/null)
-        if [ -n "$AES_MB" ]; then
-            if [ "$AES_MB" -gt 5000 ] 2>/dev/null; then
-                check_pass "Скорость шифрования: ${AES_MB} MB/s — ОТЛИЧНО (потянет 2000+ юзеров)"
-            elif [ "$AES_MB" -gt 2000 ] 2>/dev/null; then
-                check_pass "Скорость шифрования: ${AES_MB} MB/s — хорошо (до 1000 юзеров)"
-            elif [ "$AES_MB" -gt 500 ] 2>/dev/null; then
-                check_warn "Скорость шифрования: ${AES_MB} MB/s — приемлемо (до 200 юзеров)"
-            else
-                check_fail "Скорость шифрования: ${AES_MB} MB/s — слишком медленно"
-            fi
+        if   [ "$AES_MB" -gt 8000 ] 2>/dev/null; then
+            check_pass "Шифрование ${AES_MB} MB/s — топ, потянет 3000+ юзеров"
+        elif [ "$AES_MB" -gt 5000 ] 2>/dev/null; then
+            check_pass "Шифрование ${AES_MB} MB/s — отлично, до 2000 юзеров"
+        elif [ "$AES_MB" -gt 2000 ] 2>/dev/null; then
+            check_pass "Шифрование ${AES_MB} MB/s — хорошо, до 1000 юзеров"
+        elif [ "$AES_MB" -gt 500 ]  2>/dev/null; then
+            check_warn "Шифрование ${AES_MB} MB/s — приемлемо, до 200 юзеров"
+        else
+            check_fail "Шифрование ${AES_MB} MB/s — слишком медленно"
         fi
     else
-        check_warn "Не удалось получить результат openssl speed"
+        check_warn "Не удалось выполнить тест openssl"
     fi
 else
     check_warn "openssl не найден — пропускаю тест CPU"
 fi
 
-# ──────────────────────────────────────────────────
-# 5. СКОРОСТЬ ДИСКА И КАНАЛА
-# ──────────────────────────────────────────────────
-print_section "5/7" "Скорость диска и канала"
+# ══════════════════════════════════════════════════
+# 5. СКОРОСТЬ ДИСКА, КАНАЛА И MTU
+# ══════════════════════════════════════════════════
+print_section "5/7" "Скорость диска, канала и MTU"
 
-# Тест диска
+# Диск
 if command -v dd &>/dev/null; then
     check_info "Тест записи на диск..."
-    WRITE_SPEED=$(dd if=/dev/zero of=/tmp/hatavpn_test bs=64k count=4096 conv=fdatasync 2>&1 | grep -oP '[0-9.]+ [MGk]B/s' | tail -1)
-    rm -f /tmp/hatavpn_test
-    check_info "Запись: ${BOLD}$WRITE_SPEED${NC}"
+    WRITE_SPEED=$(dd if=/dev/zero of=/tmp/hv_wr bs=64k count=4096 conv=fdatasync 2>&1 | grep -oP '[0-9.]+ [MGk]?B/s' | tail -1)
+    rm -f /tmp/hv_wr
 
     check_info "Тест чтения с диска..."
-    dd if=/dev/zero of=/tmp/hatavpn_test2 bs=64k count=4096 2>/dev/null
-    READ_SPEED=$(dd if=/tmp/hatavpn_test2 of=/dev/null bs=64k 2>&1 | grep -oP '[0-9.]+ [MGk]B/s' | tail -1)
-    rm -f /tmp/hatavpn_test2
-    check_info "Чтение:  ${BOLD}$READ_SPEED${NC}"
+    dd if=/dev/zero of=/tmp/hv_rd bs=64k count=4096 2>/dev/null
+    READ_SPEED=$(dd if=/tmp/hv_rd of=/dev/null bs=64k 2>&1 | grep -oP '[0-9.]+ [MGk]?B/s' | tail -1)
+    rm -f /tmp/hv_rd
 
-    # Оценка
-    READ_MB=$(echo "$READ_SPEED" | awk '{print int($1)}')
+    check_info "Запись: ${BOLD}${WRITE_SPEED:-н/д}${NC}  /  Чтение: ${BOLD}${READ_SPEED:-н/д}${NC}"
+
     if echo "$READ_SPEED" | grep -q 'GB/s'; then
-        check_pass "Диск быстрый — NVMe подтверждён"
-    elif [ -n "$READ_MB" ] && [ "$READ_MB" -gt 400 ] 2>/dev/null; then
-        check_pass "Диск: $READ_SPEED — хороший SSD/NVMe"
-    else
+        check_pass "Диск: $READ_SPEED — NVMe подтверждён"
+    elif echo "$READ_SPEED" | grep -qP '^[5-9][0-9]{2}'; then
+        check_pass "Диск: $READ_SPEED — хороший NVMe/SSD"
+    elif [ -n "$READ_SPEED" ]; then
         check_warn "Диск медленный: $READ_SPEED (ожидается 500+ MB/s для NVMe)"
     fi
 fi
 
-# Тест скорости канала
-check_info "Тест скорости канала (загрузка 100MB)..."
+# Канал
+check_info "Тест скорости канала (100MB)..."
 DL_SPEED=$(curl -o /dev/null -s -w "%{speed_download}" --max-time 30 http://speedtest.tele2.net/100MB.zip 2>/dev/null)
 if [ -n "$DL_SPEED" ] && [ "$DL_SPEED" != "0" ]; then
     DL_MBIT=$(echo "$DL_SPEED" | awk '{printf "%.0f", $1/1024/1024*8}')
     check_info "Скорость загрузки: ${BOLD}${DL_MBIT} Mbit/s${NC}"
-    if [ "$DL_MBIT" -gt 700 ] 2>/dev/null; then
-        check_pass "Канал: ${DL_MBIT} Mbit/s — ОТЛИЧНО (полный 1 Gbit/s)"
+    if   [ "$DL_MBIT" -gt 700 ] 2>/dev/null; then
+        check_pass "Канал: ${DL_MBIT} Mbit/s — полноценный 1 Gbps"
     elif [ "$DL_MBIT" -gt 400 ] 2>/dev/null; then
         check_pass "Канал: ${DL_MBIT} Mbit/s — хорошо"
     elif [ "$DL_MBIT" -gt 100 ] 2>/dev/null; then
-        check_warn "Канал: ${DL_MBIT} Mbit/s — приемлемо, но не 1 Gbps"
+        check_warn "Канал: ${DL_MBIT} Mbit/s — узкое место, не 1 Gbps"
     else
         check_fail "Канал: ${DL_MBIT} Mbit/s — слишком медленно для VPN-ноды"
     fi
@@ -236,190 +303,187 @@ else
     check_warn "Не удалось замерить скорость канала"
 fi
 
-# ──────────────────────────────────────────────────
-# 6. ПРОВЕРКА ПОРТОВ
-# ──────────────────────────────────────────────────
-print_section "6/8" "Проверка доступности портов"
-
-check_info "Проверяю что ключевые порты не заблокированы провайдером..."
-
-# Проверяем исходящие соединения на ключевые порты
-for PORT in 80 443 8443 2053 2083 2087; do
-    RESULT=$(curl -s --max-time 3 --connect-timeout 3 -o /dev/null -w "%{http_code}" "http://example.com:$PORT" 2>/dev/null)
-    # Если получили любой ответ (даже ошибку соединения, но не timeout) — порт открыт
-    NC_RESULT=$(bash -c "echo >/dev/tcp/1.1.1.1/$PORT" 2>/dev/null && echo "open" || echo "closed")
-    if [ "$NC_RESULT" = "open" ]; then
-        check_pass "Порт $PORT — открыт исходящий"
+# MTU
+MTU=$(ip link show 2>/dev/null | grep -v 'lo:' | grep -oP 'mtu \K[0-9]+' | head -1)
+if [ -n "$MTU" ]; then
+    check_info "MTU сетевого интерфейса: ${BOLD}$MTU${NC}"
+    if   [ "$MTU" -ge 1500 ] 2>/dev/null; then
+        check_pass "MTU: $MTU — стандартный, фрагментации не будет"
+    elif [ "$MTU" -ge 1400 ] 2>/dev/null; then
+        check_warn "MTU: $MTU — немного занижен, VLESS может терять в скорости"
     else
-        check_warn "Порт $PORT — возможно заблокирован провайдером"
+        check_fail "MTU: $MTU — слишком низкий, серьёзная потеря скорости у пользователей"
     fi
-done
-
-# Проверка порта 25 (SMTP — должен быть заблокирован у хороших хостингов)
-SMTP=$(bash -c "echo >/dev/tcp/gmail-smtp-in.l.google.com/25" 2>/dev/null && echo "open" || echo "blocked")
-if [ "$SMTP" = "blocked" ]; then
-    check_pass "Порт 25 (SMTP) заблокирован — защита от спама, норма"
-else
-    check_warn "Порт 25 (SMTP) открыт — IP может попасть в спам-листы"
 fi
 
-# ──────────────────────────────────────────────────
-# 7. ПИНГ ДО РОССИЙСКИХ ПРОВАЙДЕРОВ
-# ──────────────────────────────────────────────────
-print_section "7/8" "Пинг до российских провайдеров (ключевой параметр)"
+# ══════════════════════════════════════════════════
+# 6. ПИНГ И ТРАССИРОВКА
+# ══════════════════════════════════════════════════
+print_section "6/7" "Пинг и трассировка маршрута"
 
-declare -A PING_HOSTS=(
-    ["Cloudflare (эталон)"]="1.1.1.1"
-    ["Google DNS"]="8.8.8.8"
-    ["Яндекс DNS"]="77.88.8.8"
-    ["MTC Москва"]="195.34.53.71"
-    ["Билайн Москва"]="81.88.20.1"
-)
-
-ALL_PINGS_OK=true
-for NAME in "Cloudflare (эталон)" "Google DNS" "Яндекс DNS" "MTC Москва" "Билайн Москва"; do
-    HOST="${PING_HOSTS[$NAME]}"
-    PING_MS=$(ping -c 4 -W 3 "$HOST" 2>/dev/null | tail -1 | awk -F'/' '{printf "%.1f", $5}' 2>/dev/null)
-    if [ -n "$PING_MS" ] && [ "$PING_MS" != "." ]; then
+for TARGET in "1.1.1.1:Cloudflare" "8.8.8.8:Google" "77.88.8.8:Яндекс" "195.34.53.71:MTS-RU"; do
+    HOST=$(echo $TARGET | cut -d: -f1)
+    NAME=$(echo $TARGET | cut -d: -f2)
+    PING_MS=$(ping -c 4 -W 3 "$HOST" 2>/dev/null | tail -1 | awk -F'/' '{printf "%.1f", $5}')
+    if [ -n "$PING_MS" ] && [[ "$PING_MS" =~ ^[0-9] ]]; then
         PING_INT=$(echo "$PING_MS" | cut -d. -f1)
-        if [ "$PING_INT" -lt 40 ] 2>/dev/null; then
-            check_pass "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — отлично"
-        elif [ "$PING_INT" -lt 80 ] 2>/dev/null; then
-            check_pass "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — хорошо"
-        elif [ "$PING_INT" -lt 120 ] 2>/dev/null; then
-            check_warn "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — приемлемо"
-            ALL_PINGS_OK=false
-        else
-            check_fail "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — высокий пинг"
-            ALL_PINGS_OK=false
+        if   [ "$PING_INT" -lt 40  ] 2>/dev/null; then check_pass "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — отлично"
+        elif [ "$PING_INT" -lt 80  ] 2>/dev/null; then check_pass "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — хорошо"
+        elif [ "$PING_INT" -lt 150 ] 2>/dev/null; then check_warn "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — приемлемо"
+        else check_fail "$NAME ($HOST): ${BOLD}${PING_MS}ms${NC} — высокий пинг, пользователи заметят"
         fi
     else
-        check_warn "$NAME ($HOST): недоступен или ICMP заблокирован"
+        check_info "$NAME ($HOST): ICMP недоступен"
     fi
 done
 
-# ──────────────────────────────────────────────────
-# 8. ПРОВЕРКА BLACKLIST / DNSBL
-# ──────────────────────────────────────────────────
-print_section "8/8" "Проверка IP в чёрных списках (DNSBL)"
-
-if [ -z "$IPV4" ]; then
-    IPV4=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null)
+# Трассировка
+echo ""
+check_info "Трассировка до 8.8.8.8 (первые 8 хопов):"
+if command -v traceroute &>/dev/null; then
+    TRACE=$(traceroute -n -m 8 -w 2 8.8.8.8 2>/dev/null | tail -n +2)
+elif command -v tracepath &>/dev/null; then
+    TRACE=$(tracepath -n 8.8.8.8 2>/dev/null | head -10 | tail -n +2)
+else
+    TRACE="traceroute не найден — установи: apt-get install -y traceroute"
 fi
+while IFS= read -r line; do
+    echo -e "     ${DIM}$line${NC}"
+    REPORT_LINES+=("     $line")
+done <<< "$TRACE"
+
+# ══════════════════════════════════════════════════
+# 7. BLACKLIST / DNSBL
+# ══════════════════════════════════════════════════
+print_section "7/7" "Проверка IP в чёрных списках (DNSBL)"
 
 if [ -n "$IPV4" ]; then
-    # Реверс IP для DNSBL запросов (1.2.3.4 → 4.3.2.1)
     REVERSED_IP=$(echo "$IPV4" | awk -F. '{print $4"."$3"."$2"."$1}')
-    check_info "Проверяю IP ${BOLD}$IPV4${NC} в основных DNSBL базах..."
+    check_info "Проверяю ${BOLD}$IPV4${NC} в DNSBL..."
 
     BLACKLISTED=0
-    CLEAN=0
+    CLEAN_BL=0
 
-    # Список ключевых DNSBL баз
-    declare -A DNSBL_LISTS=(
-        ["Spamhaus SBL"]="sbl.spamhaus.org"
-        ["Spamhaus XBL"]="xbl.spamhaus.org"
-        ["Spamhaus PBL"]="pbl.spamhaus.org"
-        ["Spamhaus ZEN"]="zen.spamhaus.org"
-        ["SORBS SPAM"]="spam.sorbs.net"
-        ["SORBS HTTP"]="http.sorbs.net"
-        ["Barracuda"]="b.barracudacentral.org"
-        ["SpamCop"]="bl.spamcop.net"
-        ["UCEPROTECT L1"]="dnsbl-1.uceprotect.net"
-        ["Abuse.ch"]="feodotracker.abuse.ch"
-    )
-
-    for NAME in "Spamhaus ZEN" "Spamhaus SBL" "Spamhaus XBL" "Barracuda" "SpamCop" "SORBS SPAM" "UCEPROTECT L1"; do
-        BL="${DNSBL_LISTS[$NAME]}"
-        QUERY="${REVERSED_IP}.${BL}"
-        RESULT=$(host -t A "$QUERY" 2>/dev/null | grep 'has address')
+    for ENTRY in \
+        "Spamhaus ZEN:zen.spamhaus.org" \
+        "Spamhaus SBL:sbl.spamhaus.org" \
+        "Spamhaus XBL:xbl.spamhaus.org" \
+        "Barracuda:b.barracudacentral.org" \
+        "SpamCop:bl.spamcop.net" \
+        "SORBS SPAM:spam.sorbs.net" \
+        "UCEPROTECT L1:dnsbl-1.uceprotect.net"
+    do
+        NAME=$(echo $ENTRY | cut -d: -f1)
+        BL=$(echo $ENTRY | cut -d: -f2)
+        RESULT=$(host -t A "${REVERSED_IP}.${BL}" 2>/dev/null | grep 'has address')
         if [ -n "$RESULT" ]; then
-            check_fail "BLACKLISTED в ${BOLD}$NAME${NC} ($BL)"
+            check_fail "В блэклисте: $NAME"
             ((BLACKLISTED++))
         else
-            check_pass "Чист в $NAME"
-            ((CLEAN++))
+            check_pass "Чист: $NAME"
+            ((CLEAN_BL++))
         fi
     done
 
     echo ""
-    check_info "Итог DNSBL: ${GREEN}${BOLD}$CLEAN чист${NC} / ${RED}${BOLD}$BLACKLISTED в блэклисте${NC}"
+    check_info "Итог DNSBL: ${GREEN}${BOLD}$CLEAN_BL чист${NC} / ${RED}${BOLD}$BLACKLISTED в блэклисте${NC}"
 
-    if [ "$BLACKLISTED" -eq 0 ]; then
-        check_pass "IP не замечен в спам-базах — хорошая репутация"
+    if   [ "$BLACKLISTED" -eq 0 ]; then
+        check_pass "IP чистый — хорошая репутация"
     elif [ "$BLACKLISTED" -le 2 ]; then
-        check_warn "IP в $BLACKLISTED базах — могут быть проблемы с почтой, для VPN некритично"
+        check_warn "IP в $BLACKLISTED базах — для VPN некритично, но лучше сменить IP"
     else
-        check_fail "IP в $BLACKLISTED базах — плохая репутация, лучше сменить IP у провайдера"
+        check_fail "IP в $BLACKLISTED базах — плохая репутация, запроси новый IP у провайдера"
     fi
 
-    # Отдельно проверяем Spamhaus PBL (это не плохо — просто динамический пул)
-    PBL_QUERY="${REVERSED_IP}.pbl.spamhaus.org"
-    PBL_RESULT=$(host -t A "$PBL_QUERY" 2>/dev/null | grep 'has address')
-    if [ -n "$PBL_RESULT" ]; then
-        check_info "IP в Spamhaus PBL — это норма для хостинга (Policy Block List, не спам)"
-    fi
+    PBL=$(host -t A "${REVERSED_IP}.pbl.spamhaus.org" 2>/dev/null | grep 'has address')
+    [ -n "$PBL" ] && check_info "IP в Spamhaus PBL — норма для хостинга (не спам-список)"
 else
-    check_warn "Нет IPv4 — пропускаю проверку DNSBL"
+    check_warn "IPv4 недоступен — пропускаю DNSBL"
 fi
 
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
 # ИТОГОВЫЙ ВЕРДИКТ
-# ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+
 echo ""
-echo -e "${BOLD}${BLUE}══════════════════════════════════════════════════${NC}"
-echo -e "${BOLD}${BLUE}                  ИТОГОВЫЙ ВЕРДИКТ               ${NC}"
-echo -e "${BOLD}${BLUE}══════════════════════════════════════════════════${NC}"
+echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${BLUE}║                 ИТОГОВЫЙ ВЕРДИКТ                ║${NC}"
+echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  Критических проблем:  ${RED}${BOLD}$ISSUES${NC}"
-echo -e "  Предупреждений:       ${YELLOW}${BOLD}$WARNINGS${NC}"
+echo -e "  Проверка заняла:       ${DIM}${ELAPSED} сек${NC}"
+echo -e "  Критических проблем:   ${RED}${BOLD}$ISSUES${NC}"
+echo -e "  Предупреждений:        ${YELLOW}${BOLD}$WARNINGS${NC}"
 echo ""
+
+REPORT_LINES+=("")
+REPORT_LINES+=("══════════════════ ИТОГОВЫЙ ВЕРДИКТ ══════════════════")
+REPORT_LINES+=("Время проверки: ${ELAPSED} сек | Проблем: $ISSUES | Предупреждений: $WARNINGS")
 
 if [ "$ISSUES" -eq 0 ] && [ "$WARNINGS" -le 2 ]; then
     echo -e "  ${GREEN}${BOLD}🚀 НОДА ПОДХОДИТ ДЛЯ HATAVPN${NC}"
-    echo -e "  ${GREEN}Можно подключать к Remnawave и запускать пользователей.${NC}"
+    echo -e "  ${GREEN}Подключай к Remnawave → VLESS + Reality + XHTTP${NC}"
+    REPORT_LINES+=("ВЕРДИКТ: ✅ НОДА ПОДХОДИТ")
 
 elif [ "$ISSUES" -eq 0 ]; then
     echo -e "  ${YELLOW}${BOLD}⚠️  НОДА УСЛОВНО ПОДХОДИТ${NC}"
-    echo -e "  ${YELLOW}Устрани предупреждения перед запуском:${NC}"
+    echo -e "  ${YELLOW}Устрани перед запуском:${NC}"
     echo ""
     for i in "${!WARN_REASONS[@]}"; do
-        NUM=$((i+1))
-        # Убираем escape-коды для чистого вывода в списке
         CLEAN=$(echo "${WARN_REASONS[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
-        echo -e "  ${YELLOW}  $NUM. $CLEAN${NC}"
+        echo -e "  ${YELLOW}  $((i+1)). $CLEAN${NC}"
+        REPORT_LINES+=("  $((i+1)). $CLEAN")
     done
+    REPORT_LINES+=("ВЕРДИКТ: ⚠️  УСЛОВНО ПОДХОДИТ")
 
 else
     echo -e "  ${RED}${BOLD}❌ НОДА НЕ ПОДХОДИТ ДЛЯ HATAVPN${NC}"
     echo ""
 
     if [ "${#FAIL_REASONS[@]}" -gt 0 ]; then
-        echo -e "  ${RED}${BOLD}Критические проблемы:${NC}"
+        echo -e "  ${RED}${BOLD}Причины:${NC}"
         for i in "${!FAIL_REASONS[@]}"; do
-            NUM=$((i+1))
             CLEAN=$(echo "${FAIL_REASONS[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
-            echo -e "  ${RED}  $NUM. $CLEAN${NC}"
+            echo -e "  ${RED}  $((i+1)). $CLEAN${NC}"
+            REPORT_LINES+=("  Причина $((i+1)): $CLEAN")
         done
     fi
 
     if [ "${#WARN_REASONS[@]}" -gt 0 ]; then
         echo ""
-        echo -e "  ${YELLOW}${BOLD}Дополнительные предупреждения:${NC}"
+        echo -e "  ${YELLOW}Дополнительно:${NC}"
         for i in "${!WARN_REASONS[@]}"; do
-            NUM=$((i+1))
             CLEAN=$(echo "${WARN_REASONS[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
-            echo -e "  ${YELLOW}  $NUM. $CLEAN${NC}"
+            echo -e "  ${YELLOW}  $((i+1)). $CLEAN${NC}"
         done
     fi
 
     echo ""
-    echo -e "  ${RED}Реши проблемы выше или возьми другую ноду.${NC}"
+    echo -e "  ${RED}Смени ноду или устрани проблемы выше.${NC}"
+    REPORT_LINES+=("ВЕРДИКТ: ❌ НЕ ПОДХОДИТ")
 fi
 
+# ══════════════════════════════════════════════════
+# СОХРАНЕНИЕ ОТЧЁТА
+# ══════════════════════════════════════════════════
+{
+    echo "=================================================="
+    echo " HataVPN Node Quality Checker v2.0"
+    echo " Дата:    $(date '+%Y-%m-%d %H:%M:%S UTC')"
+    echo " IP:      ${IPV4:-н/д} | $CITY, $COUNTRY"
+    echo " Хост:    $(hostname)"
+    echo "=================================================="
+    echo ""
+    for line in "${REPORT_LINES[@]}"; do
+        echo "$line"
+    done
+} > "$REPORT_FILE"
+
 echo ""
-echo -e "  ${CYAN}Следующий шаг:${NC} подключи ноду к Remnawave Panel"
-echo -e "  ${CYAN}Протокол:${NC} VLESS + Reality + XHTTP"
+echo -e "  ${CYAN}📄 Отчёт сохранён: ${BOLD}$REPORT_FILE${NC}"
+echo -e "  ${DIM}Просмотр: cat $REPORT_FILE${NC}"
 echo ""
-echo -e "${BOLD}${BLUE}══════════════════════════════════════════════════${NC}"
+echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
