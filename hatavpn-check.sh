@@ -317,7 +317,13 @@ BEST_SPEED=0
 BEST_NAME=""
 SPEEDTEST_DONE=false
 
-# Метод 1: speedtest-cli (самый точный)
+# Метод 1: speedtest-cli — ставим автоматически если нет
+if ! command -v speedtest-cli &>/dev/null && ! command -v speedtest &>/dev/null; then
+    check_info "  speedtest-cli не найден — устанавливаю автоматически..."
+    apt-get install -y -q speedtest-cli 2>/dev/null || \
+        pip3 install speedtest-cli -q 2>/dev/null || true
+fi
+
 if command -v speedtest-cli &>/dev/null || command -v speedtest &>/dev/null; then
     check_info "  → speedtest-cli (точный тест)..."
     TOOL="speedtest-cli"
