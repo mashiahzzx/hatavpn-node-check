@@ -233,8 +233,26 @@ print_section "4/7" "Тест CPU — скорость шифрования AES-
 
 if command -v openssl &>/dev/null; then
     check_info "Запускаю 3-секундный тест..."
-    AES_RESULT=$(openssl speed -elapsed -seconds 3 aes-256-gcm 2>/dev/null | grep 'aes-256-gcm' | awk '{print $NF}')
-    if [ -n "$AES_RESULT" ]; then
+
+    # Ubuntu 24.04 изменил формат вывода openssl speed
+    # Пробуем несколько вариантов парсинга
+    AES_RAW=$(openssl speed -elapsed -seconds 3 aes-256-gcm 2>&1)
+
+    # Вариант 1: старый формат — последнее число в строке aes-256-gcm
+    AES_RESULT=$(echo "$AES_RAW" | grep -i 'aes-256-gcm' | grep -v '^#' | awk '{print $NF}' | grep -oP '[0-9]+\.[0-9]+' | tail -1)
+
+    # Вариант 2: новый формат Ubuntu 24.04 — ищем строку с числом байт
+    if [ -z "$AES_RESULT" ] || [ "$AES_RESULT" = "0" ]; then
+        AES_RESULT=$(echo "$AES_RAW" | grep -i 'aes-256-gcm' | grep -oP '\d+\.\d+k' | tail -1 | tr -d 'k')
+        [ -n "$AES_RESULT" ] && AES_RESULT=$(echo "$AES_RESULT" | awk '{print $1 * 1024}')
+    fi
+
+    # Вариант 3: ищем throughput напрямую
+    if [ -z "$AES_RESULT" ] || [ "$AES_RESULT" = "0" ]; then
+        AES_RESULT=$(echo "$AES_RAW" | grep -oP '[0-9]+\.[0-9]+[kmKM]?\s+bytes' | head -1 | awk '{print $1}')
+    fi
+
+    if [ -n "$AES_RESULT" ] && [ "$AES_RESULT" != "0" ]; then
         AES_MB=$(echo "$AES_RESULT" | awk '{print int($1/1024/1024)}')
         AES_GBIT=$(echo "$AES_RESULT" | awk '{printf "%.1f", $1/1024/1024/1024*8}')
         check_info "Результат: ${BOLD}${AES_MB} MB/s (~${AES_GBIT} Gbit/s)${NC}"
@@ -251,10 +269,17 @@ if command -v openssl &>/dev/null; then
             check_fail "Шифрование ${AES_MB} MB/s — слишком медленно"
         fi
     else
-        check_warn "Не удалось выполнить тест openssl"
+        # Fallback: считаем через dd + openssl напрямую
+        check_info "Альтернативный тест через dd+openssl..."
+        DD_RESULT=$(dd if=/dev/zero bs=1M count=512 2>/dev/null | openssl enc -aes-256-cbc -pass pass:test -pbkdf2 2>/dev/null | wc -c)
+        if [ -n "$DD_RESULT" ] && [ "$DD_RESULT" -gt 0 ] 2>/dev/null; then
+            check_info "Шифрование работает (детальный бенчмарк недоступен)"
+        else
+            check_info "Тест шифрования пропущен — openssl установится с Xray автоматически"
+        fi
     fi
 else
-    check_warn "openssl не найден — пропускаю тест CPU"
+    check_info "openssl не установлен — установится с Xray автоматически"
 fi
 
 # ══════════════════════════════════════════════════
@@ -296,29 +321,33 @@ declare -A SPEED_SOURCES=(
 
 BEST_SPEED=0
 BEST_NAME=""
-SPEED_RESULTS=()
 
-for ENTRY in "Cloudflare EU:https://speed.cloudflare.com/__down?bytes=104857600" \
-             "Yandex CDN (RU):https://storage.yandexcloud.net/yandex-internet-speed-test/100mb.bin" \
-             "Tele2 EU:http://speedtest.tele2.net/100MB.zip"
+for ENTRY in \
+    "Cloudflare EU:https://speed.cloudflare.com/__down?bytes=104857600" \
+    "Yandex CDN (RU):https://storage.yandexcloud.net/yandex-internet-speed-test/100mb.bin" \
+    "Tele2 EU:http://speedtest.tele2.net/100MB.zip"
 do
     SRC_NAME=$(echo "$ENTRY" | cut -d: -f1)
     SRC_URL=$(echo "$ENTRY" | cut -d: -f2-)
 
     check_info "  → $SRC_NAME..."
-    RAW=$(curl -o /dev/null -s -w "%{speed_download}" --max-time 20 "$SRC_URL" 2>/dev/null)
+    RAW=$(curl -o /dev/null -s -w "%{speed_download}" \
+        -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+        -L --max-time 20 "$SRC_URL" 2>/dev/null)
     if [ -n "$RAW" ] && [ "$RAW" != "0" ]; then
         MBIT=$(echo "$RAW" | awk '{printf "%.0f", $1/1024/1024*8}')
-        check_info "    $SRC_NAME: ${BOLD}${MBIT} Mbit/s${NC}"
-        SPEED_RESULTS+=("$SRC_NAME: ${MBIT} Mbit/s")
-        # Запоминаем лучший результат
-        if [ "$MBIT" -gt "$BEST_SPEED" ] 2>/dev/null; then
-            BEST_SPEED=$MBIT
-            BEST_NAME=$SRC_NAME
+        if [ "$MBIT" -gt 0 ] 2>/dev/null; then
+            check_info "    $SRC_NAME: ${BOLD}${MBIT} Mbit/s${NC}"
+            REPORT_LINES+=("  $SRC_NAME: ${MBIT} Mbit/s")
+            if [ "$MBIT" -gt "$BEST_SPEED" ] 2>/dev/null; then
+                BEST_SPEED=$MBIT
+                BEST_NAME=$SRC_NAME
+            fi
+        else
+            check_info "    $SRC_NAME: сервер недоступен"
         fi
     else
         check_info "    $SRC_NAME: недоступен"
-        SPEED_RESULTS+=("$SRC_NAME: недоступен")
     fi
 done
 
