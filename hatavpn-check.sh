@@ -22,9 +22,11 @@ WARN="${YELLOW}⚠️ ${NC}"
 FAIL="${RED}❌${NC}"
 INFO="${CYAN}ℹ️ ${NC}"
 
-# Счётчик проблем
+# Счётчики и причины
 ISSUES=0
 WARNINGS=0
+FAIL_REASONS=()
+WARN_REASONS=()
 
 print_header() {
     echo ""
@@ -42,8 +44,8 @@ print_section() {
 }
 
 check_pass()  { echo -e "  ${OK}  $1"; }
-check_warn()  { echo -e "  ${WARN} $1"; ((WARNINGS++)); }
-check_fail()  { echo -e "  ${FAIL}  $1"; ((ISSUES++)); }
+check_warn()  { echo -e "  ${WARN} $1"; ((WARNINGS++)); WARN_REASONS+=("$1"); }
+check_fail()  { echo -e "  ${FAIL}  $1"; ((ISSUES++)); FAIL_REASONS+=("$1"); }
 check_info()  { echo -e "  ${INFO}  $1"; }
 
 # ──────────────────────────────────────────────────
@@ -376,12 +378,43 @@ echo ""
 if [ "$ISSUES" -eq 0 ] && [ "$WARNINGS" -le 2 ]; then
     echo -e "  ${GREEN}${BOLD}🚀 НОДА ПОДХОДИТ ДЛЯ HATAVPN${NC}"
     echo -e "  ${GREEN}Можно подключать к Remnawave и запускать пользователей.${NC}"
+
 elif [ "$ISSUES" -eq 0 ]; then
     echo -e "  ${YELLOW}${BOLD}⚠️  НОДА УСЛОВНО ПОДХОДИТ${NC}"
-    echo -e "  ${YELLOW}Устрани предупреждения выше перед запуском.${NC}"
+    echo -e "  ${YELLOW}Устрани предупреждения перед запуском:${NC}"
+    echo ""
+    for i in "${!WARN_REASONS[@]}"; do
+        NUM=$((i+1))
+        # Убираем escape-коды для чистого вывода в списке
+        CLEAN=$(echo "${WARN_REASONS[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
+        echo -e "  ${YELLOW}  $NUM. $CLEAN${NC}"
+    done
+
 else
-    echo -e "  ${RED}${BOLD}❌ НОДА НЕ ПОДХОДИТ${NC}"
-    echo -e "  ${RED}Есть критические проблемы — исправь или смени ноду.${NC}"
+    echo -e "  ${RED}${BOLD}❌ НОДА НЕ ПОДХОДИТ ДЛЯ HATAVPN${NC}"
+    echo ""
+
+    if [ "${#FAIL_REASONS[@]}" -gt 0 ]; then
+        echo -e "  ${RED}${BOLD}Критические проблемы:${NC}"
+        for i in "${!FAIL_REASONS[@]}"; do
+            NUM=$((i+1))
+            CLEAN=$(echo "${FAIL_REASONS[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
+            echo -e "  ${RED}  $NUM. $CLEAN${NC}"
+        done
+    fi
+
+    if [ "${#WARN_REASONS[@]}" -gt 0 ]; then
+        echo ""
+        echo -e "  ${YELLOW}${BOLD}Дополнительные предупреждения:${NC}"
+        for i in "${!WARN_REASONS[@]}"; do
+            NUM=$((i+1))
+            CLEAN=$(echo "${WARN_REASONS[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
+            echo -e "  ${YELLOW}  $NUM. $CLEAN${NC}"
+        done
+    fi
+
+    echo ""
+    echo -e "  ${RED}Реши проблемы выше или возьми другую ноду.${NC}"
 fi
 
 echo ""
