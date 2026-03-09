@@ -284,23 +284,58 @@ if command -v dd &>/dev/null; then
     fi
 fi
 
-# Канал
-check_info "Тест скорости канала (100MB)..."
-DL_SPEED=$(curl -o /dev/null -s -w "%{speed_download}" --max-time 30 http://speedtest.tele2.net/100MB.zip 2>/dev/null)
-if [ -n "$DL_SPEED" ] && [ "$DL_SPEED" != "0" ]; then
-    DL_MBIT=$(echo "$DL_SPEED" | awk '{printf "%.0f", $1/1024/1024*8}')
-    check_info "Скорость загрузки: ${BOLD}${DL_MBIT} Mbit/s${NC}"
-    if   [ "$DL_MBIT" -gt 700 ] 2>/dev/null; then
-        check_pass "Канал: ${DL_MBIT} Mbit/s — полноценный 1 Gbps"
-    elif [ "$DL_MBIT" -gt 400 ] 2>/dev/null; then
-        check_pass "Канал: ${DL_MBIT} Mbit/s — хорошо"
-    elif [ "$DL_MBIT" -gt 100 ] 2>/dev/null; then
-        check_warn "Канал: ${DL_MBIT} Mbit/s — узкое место, не 1 Gbps"
+# Канал — тест через несколько источников
+check_info "Тест скорости канала (несколько серверов)..."
+
+# Источники: европейский нейтральный + Яндекс CDN (РФ) + Cloudflare
+declare -A SPEED_SOURCES=(
+    ["Cloudflare EU"]="https://speed.cloudflare.com/__down?bytes=104857600"
+    ["Yandex CDN (RU)"]="https://storage.yandexcloud.net/yandex-internet-speed-test/100mb.bin"
+    ["Tele2 EU"]="http://speedtest.tele2.net/100MB.zip"
+)
+
+BEST_SPEED=0
+BEST_NAME=""
+SPEED_RESULTS=()
+
+for ENTRY in "Cloudflare EU:https://speed.cloudflare.com/__down?bytes=104857600" \
+             "Yandex CDN (RU):https://storage.yandexcloud.net/yandex-internet-speed-test/100mb.bin" \
+             "Tele2 EU:http://speedtest.tele2.net/100MB.zip"
+do
+    SRC_NAME=$(echo "$ENTRY" | cut -d: -f1)
+    SRC_URL=$(echo "$ENTRY" | cut -d: -f2-)
+
+    check_info "  → $SRC_NAME..."
+    RAW=$(curl -o /dev/null -s -w "%{speed_download}" --max-time 20 "$SRC_URL" 2>/dev/null)
+    if [ -n "$RAW" ] && [ "$RAW" != "0" ]; then
+        MBIT=$(echo "$RAW" | awk '{printf "%.0f", $1/1024/1024*8}')
+        check_info "    $SRC_NAME: ${BOLD}${MBIT} Mbit/s${NC}"
+        SPEED_RESULTS+=("$SRC_NAME: ${MBIT} Mbit/s")
+        # Запоминаем лучший результат
+        if [ "$MBIT" -gt "$BEST_SPEED" ] 2>/dev/null; then
+            BEST_SPEED=$MBIT
+            BEST_NAME=$SRC_NAME
+        fi
     else
-        check_fail "Канал: ${DL_MBIT} Mbit/s — слишком медленно для VPN-ноды"
+        check_info "    $SRC_NAME: недоступен"
+        SPEED_RESULTS+=("$SRC_NAME: недоступен")
+    fi
+done
+
+echo ""
+if [ "$BEST_SPEED" -gt 0 ] 2>/dev/null; then
+    check_info "Лучший результат: ${BOLD}${BEST_SPEED} Mbit/s${NC} (${BEST_NAME})"
+    if   [ "$BEST_SPEED" -gt 700 ] 2>/dev/null; then
+        check_pass "Канал: ${BEST_SPEED} Mbit/s — полноценный 1 Gbps ✓"
+    elif [ "$BEST_SPEED" -gt 400 ] 2>/dev/null; then
+        check_pass "Канал: ${BEST_SPEED} Mbit/s — хорошо"
+    elif [ "$BEST_SPEED" -gt 100 ] 2>/dev/null; then
+        check_warn "Канал: ${BEST_SPEED} Mbit/s — приемлемо, но не 1 Gbps"
+    else
+        check_warn "Канал: ${BEST_SPEED} Mbit/s — низкая скорость по всем серверам (может быть перегрузка, проверь позже)"
     fi
 else
-    check_warn "Не удалось замерить скорость канала"
+    check_warn "Не удалось замерить скорость канала ни с одного источника"
 fi
 
 # MTU
